@@ -6,6 +6,18 @@ Run against the live catalog on 2026-09-09.
 Vesuvius catalog check
   45 samples · 67 scans · 71 volumes · 311 segments
 
+[ok  ] coverage-bbox-inverted       —          0  volume_coverage bbox has a lower corner above its upper corner
+[FAIL] coverage-ratio-contradicts-bbox #1734    407  overlap_ratio claims full coverage while the bbox falls outside the volume
+           PHercMANBp/20251218010446: volume 20251216152116: overlap_ratio 1.0 but axes [2] fall outside shape [17148, 12577, 12577]
+           PHercMANBp/20251218010446: volume 20260427100434: overlap_ratio 1.0 but axes [2] fall outside shape [35024, 22137, 20286]
+           PHercMANBp/20251217234605: volume 20251216152116: overlap_ratio 1.0 but axes [2] fall outside shape [17148, 12577, 12577]
+           PHercMANBp/20251217234605: volume 20260427100434: overlap_ratio 1.0 but axes [2] fall outside shape [35024, 22137, 20286]
+           PHercMANBp/20251222204911: volume 20251216152116: overlap_ratio 1.0 but axes [2] fall outside shape [17148, 12577, 12577]
+           PHercMANBp/20251222204911: volume 20260427100434: overlap_ratio 1.0 but axes [2] fall outside shape [35024, 22137, 20286]
+           PHercMANBp/20251220012955: volume 20260427100434: overlap_ratio 1.0 but axes [2] fall outside shape [35024, 22137, 20286]
+           PHercMANBp/20251218211706: volume 20251216152116: overlap_ratio 1.0 but axes [2] fall outside shape [17148, 12577, 12577]
+           ... 399 more (use --verbose)
+[ok  ] coverage-volume-dangling     —          0  volume_coverage is keyed by a volume the sample does not publish
 [FAIL] creation-info-inconsistent   #1436     29  an artifact deviates from its type's creation_info convention
            PHerc0332/volume/20251211183505: type 'lasagna' is the only 4/25 missing creation_info
            PHerc1299/volume/20260309130042: type 'lasagna' is the only 4/25 missing creation_info
@@ -16,7 +28,7 @@ Vesuvius catalog check
            PHerc0800/segment/20251028222030: type 'obj' is the only 9/171 missing creation_info
            PHerc0800/segment/20251028225813: type 'obj' is the only 9/171 missing creation_info
            ... 21 more (use --verbose)
-[ok  ] data-format-mixed            #1654      0  a sample publishes volumes in mixed integer widths
+[ok  ] data-format-mixed            —          0  a sample publishes volumes in mixed integer widths
 [FAIL] derived-from-dangling        #1504      3  creation.derived_from points at an id that does not resolve to its declared type
            PHerc0009B/volume/20250521125136: declared type 'volume', id 20250509053741 resolves only as scan
            PHerc0009B/volume/20250820154339: declared type 'volume', id 20250718080859 resolves only as scan
@@ -42,5 +54,5 @@ Vesuvius catalog check
            PHerc0500P2/20250820143440: properties.shape is null
            PHerc0343P/20250521134555: properties.shape is null
 
-56 finding(s) across 10 check(s)
+463 finding(s) across 13 check(s)
 ```

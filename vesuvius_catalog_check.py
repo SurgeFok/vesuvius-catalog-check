@@ -178,9 +178,16 @@ def pixel_size_disagrees(catalog):
                 yield f"{sample_name}/{vid}", f"volume {vol_px} vs scan {scan_px} ({drift:.2f}% drift)"
 
 
-@check("data-format-mixed", 1654,
+@check("data-format-mixed", None,
        "a sample publishes volumes in mixed integer widths")
 def data_format_mixed(catalog):
+    """Generic guard, not #1654.
+
+    #1654 is about the `instance-labels-harmonized` label volumes, which this catalog does
+    not describe, so it is not claimed here. The invariant is still worth holding: a
+    consumer that reads one volume of a sample and sizes buffers from its dtype should not
+    be surprised by the next.
+    """
     for sample_name, sample in catalog.get("samples", {}).items():
         by_format = defaultdict(list)
         for vid, volume in (sample.get("volumes") or {}).items():
@@ -223,6 +230,75 @@ def creation_info_inconsistent(catalog, minority_ceiling=0.25):
         for target in deviating:
             yield target, (f"type '{artifact_type}' is the only {len(deviating)}/{total} "
                            f"{verb} creation_info")
+
+
+@check("coverage-volume-dangling", None,
+       "volume_coverage is keyed by a volume the sample does not publish")
+def coverage_volume_dangling(catalog):
+    for sample_name, sample in catalog.get("samples", {}).items():
+        volumes = set((sample.get("volumes") or {}).keys())
+        for sid, segment in (sample.get("segments") or {}).items():
+            coverage = (segment.get("properties") or {}).get("volume_coverage")
+            if not isinstance(coverage, dict):
+                continue
+            for volume_id in coverage:
+                if volume_id not in volumes:
+                    yield f"{sample_name}/{sid}", f"coverage key {volume_id} not published"
+
+
+@check("coverage-bbox-inverted", None,
+       "volume_coverage bbox has a lower corner above its upper corner")
+def coverage_bbox_inverted(catalog):
+    for sample, sid, segment in records(catalog, "segments"):
+        coverage = (segment.get("properties") or {}).get("volume_coverage")
+        if not isinstance(coverage, dict):
+            continue
+        for volume_id, entry in coverage.items():
+            bbox = (entry or {}).get("bbox_transformed")
+            if not (isinstance(bbox, list) and len(bbox) == 2):
+                continue
+            lower, upper = bbox
+            bad = [i for i, (lo, hi) in enumerate(zip(lower, upper)) if lo > hi]
+            if bad:
+                yield f"{sample}/{sid}", f"volume {volume_id}: axes {bad} inverted"
+
+
+@check("coverage-ratio-contradicts-bbox", 1734,
+       "overlap_ratio claims full coverage while the bbox falls outside the volume")
+def coverage_ratio_contradicts_bbox(catalog):
+    """An internal contradiction between two fields of the same record.
+
+    The raw question "is bbox_transformed inside the volume?" is deliberately NOT asked:
+    the bbox has been pushed through a transform and which frame it lands in is exactly
+    what #1734 is about, so 981 apparent violations there may be a frame convention rather
+    than a defect. But a record claiming overlap_ratio 1.0 while placing its own bbox
+    outside the volume it names disagrees with itself whichever frame is meant, and that
+    holds without resolving #1734.
+    """
+    for sample_name, sample in catalog.get("samples", {}).items():
+        volumes = sample.get("volumes") or {}
+        for sid, segment in (sample.get("segments") or {}).items():
+            coverage = (segment.get("properties") or {}).get("volume_coverage")
+            if not isinstance(coverage, dict):
+                continue
+            for volume_id, entry in coverage.items():
+                entry = entry or {}
+                if entry.get("overlap_ratio") != 1.0:
+                    continue
+                volume = volumes.get(volume_id)
+                shape = (volume or {}).get("properties", {}).get("shape")
+                bbox = entry.get("bbox_transformed")
+                if not shape or not (isinstance(bbox, list) and len(bbox) == 2):
+                    continue  # #1516 volumes have no shape to check against
+                lower, upper = bbox
+                outside = [
+                    i for i, (lo, hi) in enumerate(zip(lower, upper))
+                    if lo < 0 or hi > shape[i]
+                ]
+                if outside:
+                    yield (f"{sample_name}/{sid}",
+                           f"volume {volume_id}: overlap_ratio 1.0 but axes {outside} "
+                           f"fall outside shape {shape}")
 
 
 # --------------------------------------------------------------------------
