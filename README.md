@@ -1,5 +1,7 @@
 # vesuvius-catalog-check
 
+[![tests](https://github.com/SurgeFok/vesuvius-catalog-check/actions/workflows/tests.yml/badge.svg)](https://github.com/SurgeFok/vesuvius-catalog-check/actions/workflows/tests.yml)
+
 A consistency checker for the [Vesuvius Challenge](https://scrollprize.org) published
 data catalog.
 
