@@ -14,6 +14,49 @@ pointer dangles, the failure surfaces much later and much less legibly.
 This runs thirteen structural checks over that catalog in well under a second, with no
 credentials and nothing to build.
 
+## What it finds, and why the counts can be trusted
+
+Three checks reproduce their upstream issue's reported count exactly. That is the evidence
+they measure the right thing rather than merely producing output:
+
+- `volume-shape-null` finds **4**; [#1516](https://github.com/ScrollPrize/villa/issues/1516) reports four volumes.
+- `derived-from-dangling` finds **3**, all `PHerc0009B`, all typed `volume` but resolving
+  only as `scan`; [#1504](https://github.com/ScrollPrize/villa/issues/1504) reports exactly that.
+- `segment-predates-source` finds **20**; [#1730](https://github.com/ScrollPrize/villa/issues/1730) reports 20 segments.
+
+Two findings go beyond what was reported: [#1436](https://github.com/ScrollPrize/villa/issues/1436)
+describes one Lasagna artifact with a null `creation_info` and there are four, and 407
+coverage records claim an `overlap_ratio` of 1.0 while placing their own bbox outside the
+volume they name.
+
+Two checks were wrong on the first pass, and both failure modes are easy to ship by
+accident:
+
+- `segment-predates-source` first compared the segment against its source *volume* date and
+  found 47. #1730 compares against the *scan*. On the correct basis it is 20.
+- `creation-info-inconsistent` first flagged every null `creation_info` and found 396. But
+  null is the convention for whole artifact types — `ome-zarr` is 71/71 null,
+  `tifxyz-flattened` 122/122 — so most of that was noise. It now reports only the minority
+  side of a lopsided split: 29.
+
+## Three things this does not claim
+
+A checker that claims issues it cannot reach is worse than one claiming fewer, so each of
+these was checked and dropped rather than asserted.
+
+- **The 981 out-of-extent bboxes.** `bbox_transformed` sits outside its volume's extent in
+  981 places, but the bbox has been pushed through a transform and which frame it lands in
+  is the open question in [#1734](https://github.com/ScrollPrize/villa/issues/1734). Only
+  the 407 that contradict themselves are reported, which holds whichever frame is meant.
+- **`data-format-mixed` is not [#1654](https://github.com/ScrollPrize/villa/issues/1654).**
+  That issue concerns the `instance-labels-harmonized` label volumes, which this catalog
+  does not describe.
+- **`scale-is-a-grid-step` is not [#1379](https://github.com/ScrollPrize/villa/issues/1379).**
+  That issue concerns `outer_shell/meta.json` under the spiral-input tree, and no artifact
+  in the catalog points there.
+
+Both unclaimed checks are kept as guards over what is reachable.
+
 ## Usage
 
 ```
@@ -48,7 +91,9 @@ checked offline; gzip is detected automatically.
 Checks that currently pass are kept deliberately: they are regressions worth catching,
 and a check that passes today is evidence the catalog is clean in that dimension.
 
-## Mutation tests
+## Keeping the checks honest
+
+### Mutation tests
 
 Eight of the thirteen checks report nothing against today's catalog. Reporting nothing
 because the check is broken looks identical to reporting nothing because the data is clean,
@@ -65,7 +110,7 @@ A ninth test fails if any check neither fires against the live catalog nor appea
 mutation suite. Adding a check therefore requires it to find something, or to be shown that
 it could.
 
-## Malformed catalogs
+### Malformed catalogs
 
 A validator that dies on bad input is the one failure mode this tool cannot have: the
 traceback replaces every finding that was queued behind it. So the checks are also run over
@@ -126,50 +171,9 @@ today's data it is five scans covering 61 of 188. Reported per scan rather than 
 one mesh missing the field is an omission, a scan where every mesh is missing it is a
 pipeline that never wrote it.
 
-`scale-is-a-grid-step` is deliberately not attributed to
-[#1379](https://github.com/ScrollPrize/villa/issues/1379). That issue concerns
-`outer_shell/meta.json` under the spiral-input tree, and no artifact in the catalog points
-there — the published types are `obj`, `tifxyz` and their variants, the zarr volumes and
-the renders. The invariant is kept as a guard over what is reachable.
-
 ## Findings
 
 See [FINDINGS.md](FINDINGS.md) for the current run against the live catalog.
-
-## One check deliberately not written
-
-`bbox_transformed` sits outside its volume's extent in 981 places. That is not reported as
-a defect: the bbox has been pushed through a transform and which frame it lands in is
-exactly the open question in
-[#1734](https://github.com/ScrollPrize/villa/issues/1734), so those 981 may be a frame
-convention rather than an error. What is reported instead is the subset that contradicts
-itself — 407 records claiming `overlap_ratio` of 1.0 while placing their own bbox outside
-the volume they name. That holds whichever frame is meant.
-
-`data-format-mixed` is likewise not attributed to #1654: that issue concerns the
-`instance-labels-harmonized` label volumes, which this catalog does not describe. The
-invariant is kept as a generic guard rather than claimed as a fix.
-
-## Why the counts are calibrated
-
-Three checks reproduce their upstream issue's reported count exactly, which is the
-evidence that they measure the right thing:
-
-- `volume-shape-null` finds **4**; #1516 reports four volumes.
-- `derived-from-dangling` finds **3**, all `PHerc0009B`, all typed `volume` but resolving
-  only as `scan`; #1504 reports exactly that.
-- `segment-predates-source` finds **20**; #1730 reports 20 segments.
-
-Two checks were wrong on the first pass and are worth naming, because both failure modes
-are easy to ship by accident:
-
-- `segment-predates-source` originally compared the segment against its source *volume*
-  date and found 47. #1730 compares against the *scan*. On the correct basis it is 20.
-- `creation-info-inconsistent` originally flagged every null `creation_info` and found
-  396. But null is the convention for whole artifact types — `ome-zarr` is 71/71 null,
-  `tifxyz-flattened` 122/122 — so most of that was noise. It now reports only the
-  minority side of a lopsided split, which is 29 and includes the Lasagna artifact #1436
-  describes, plus three more the issue does not mention.
 
 ## License
 
