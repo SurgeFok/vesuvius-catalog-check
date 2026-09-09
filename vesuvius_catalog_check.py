@@ -285,15 +285,22 @@ def coverage_ratio_contradicts_bbox(catalog):
                 entry = entry or {}
                 if entry.get("overlap_ratio") != 1.0:
                     continue
-                volume = volumes.get(volume_id)
-                shape = (volume or {}).get("properties", {}).get("shape")
+                volume = volumes.get(volume_id) or {}
+                # properties may be absent, or present and null.
+                shape = (volume.get("properties") or {}).get("shape")
                 bbox = entry.get("bbox_transformed")
                 if not shape or not (isinstance(bbox, list) and len(bbox) == 2):
                     continue  # #1516 volumes have no shape to check against
                 lower, upper = bbox
+                if not (isinstance(lower, list) and isinstance(upper, list)):
+                    continue
+                # A bbox with more axes than the shape is itself a defect, but it is not
+                # this check's, and indexing past the shape would crash on exactly the
+                # malformed data this tool exists to find.
+                axes = min(len(lower), len(upper), len(shape))
                 outside = [
-                    i for i, (lo, hi) in enumerate(zip(lower, upper))
-                    if lo < 0 or hi > shape[i]
+                    i for i in range(axes)
+                    if lower[i] < 0 or upper[i] > shape[i]
                 ]
                 if outside:
                     yield (f"{sample_name}/{sid}",

@@ -63,6 +63,18 @@ A ninth test fails if any check neither fires against the live catalog nor appea
 mutation suite. Adding a check therefore requires it to find something, or to be shown that
 it could.
 
+## Malformed catalogs
+
+A validator that dies on bad input is the one failure mode this tool cannot have: the
+traceback replaces every finding that was queued behind it. So the checks are also run over
+catalogs that are empty, missing their `samples` key, carrying `properties: null` rather
+than an absent key, holding a bbox with more axes than the volume's shape, or dating a
+record `"not-a-date"`.
+
+Two of those crashed the coverage check when the suite was first written — `properties`
+present but null, and a shape with fewer axes than the bbox. Both were the exact
+malformation the tool is meant to report.
+
 ## Findings
 
 See [FINDINGS.md](FINDINGS.md) for the current run against the live catalog.
