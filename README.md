@@ -46,21 +46,22 @@ checked offline; gzip is detected automatically.
 Checks that currently pass are kept deliberately: they are regressions worth catching,
 and a check that passes today is evidence the catalog is clean in that dimension.
 
-## Proving the quiet checks are real
+## Mutation tests
 
-Eight of the thirteen report nothing against today's catalog. A check that reports nothing
-because it *cannot* is worse than no check, since it reads as assurance. So each is handed
-a copy of the real catalog with a defect injected — a dangling `scan_id`, a mismatched
-`pixel_size_um`, an inverted bbox — and has to find it:
+Eight of the thirteen checks report nothing against today's catalog. Reporting nothing
+because the check is broken looks identical to reporting nothing because the data is clean,
+so each of the eight is handed a copy of the real catalog with one defect injected — a
+dangling `scan_id`, a `pixel_size_um` that disagrees with its scan, an inverted bbox — and
+has to find it.
 
 ```
 $ python -m pytest tests/ -q
 9 passed
 ```
 
-The ninth test is the one that keeps this honest: it fails if any check neither fires
-against the live catalog nor appears in the mutation suite, so a new check cannot be added
-without either finding something or proving it could.
+A ninth test fails if any check neither fires against the live catalog nor appears in the
+mutation suite. Adding a check therefore requires it to find something, or to be shown that
+it could.
 
 ## Findings
 
