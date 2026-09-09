@@ -96,6 +96,12 @@ python segment_meta_check.py --limit 40      # sample rather than sweep
 It reads only the canonical `tifxyz` artifact. The transformed, normalised and flattened
 variants are derived from it and repeat its defects, which would multiply every count.
 
+Since it points a few hundred requests at someone else's public bucket, it sends a
+`User-Agent` naming the tool so the burst is attributable, caps concurrency at 8 with a
+short pause per worker, and retries transient failures with exponential backoff and jitter
+— but never retries a 404, because an absent object is a finding rather than a hiccup. With
+`--cache-dir` a re-run costs nothing: 3.6s live against 0.3s cached, same result.
+
 ### [#1468](https://github.com/ScrollPrize/villa/issues/1468) reproduces, with different numbers
 
 ```

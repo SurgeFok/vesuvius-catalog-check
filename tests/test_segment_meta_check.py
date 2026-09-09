@@ -7,6 +7,8 @@ network path is exercised by running segment_meta_check.py itself.
 from __future__ import annotations
 
 import importlib.util
+
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -101,3 +103,100 @@ class TestTargets:
             "data": [{"type": "tifxyz", "origins": [{"path": "a/"}]}],
         }}}}}
         assert list(segmeta.mesh_targets(catalog)) == [("S", "g", None, "a/meta.json")]
+
+
+class TestFetchWithRetry:
+    """Retry code that is never exercised is where hangs and silent give-ups live."""
+
+    def _patch(self, monkeypatch, responses):
+        """Feed _get a scripted sequence; each entry is a body or an exception."""
+        calls = {"n": 0}
+
+        def fake_get(url, timeout):
+            index = calls["n"]
+            calls["n"] += 1
+            outcome = responses[min(index, len(responses) - 1)]
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        monkeypatch.setattr(segmeta, "_get", fake_get)
+        monkeypatch.setattr(segmeta.time, "sleep", lambda _s: None)
+        return calls
+
+    def test_a_first_time_success_does_not_retry(self, monkeypatch):
+        calls = self._patch(monkeypatch, [b"ok"])
+        assert segmeta.fetch_with_retry("u") == b"ok"
+        assert calls["n"] == 1
+
+    def test_a_transient_failure_is_retried_then_succeeds(self, monkeypatch):
+        import urllib.error
+        calls = self._patch(monkeypatch, [
+            urllib.error.URLError("connection reset"), b"ok",
+        ])
+        assert segmeta.fetch_with_retry("u") == b"ok"
+        assert calls["n"] == 2
+
+    def test_a_retryable_status_is_retried(self, monkeypatch):
+        import urllib.error
+        calls = self._patch(monkeypatch, [
+            urllib.error.HTTPError("u", 503, "slow down", {}, None), b"ok",
+        ])
+        assert segmeta.fetch_with_retry("u") == b"ok"
+        assert calls["n"] == 2
+
+    def test_a_404_is_not_retried(self, monkeypatch):
+        """The object is genuinely absent; retrying only pesters the bucket."""
+        import urllib.error
+        calls = self._patch(monkeypatch, [
+            urllib.error.HTTPError("u", 404, "not found", {}, None),
+        ])
+        with pytest.raises(urllib.error.HTTPError):
+            segmeta.fetch_with_retry("u")
+        assert calls["n"] == 1
+
+    def test_it_gives_up_after_the_attempt_budget(self, monkeypatch):
+        import urllib.error
+        calls = self._patch(monkeypatch, [urllib.error.URLError("down")])
+        with pytest.raises(urllib.error.URLError):
+            segmeta.fetch_with_retry("u", attempts=3)
+        assert calls["n"] == 3
+
+    def test_the_request_identifies_the_tool(self, monkeypatch):
+        seen = {}
+
+        def fake_urlopen(request, timeout=None):
+            seen["ua"] = request.get_header("User-agent")
+
+            class R:
+                def read(self): return b"{}"
+                def __enter__(self): return self
+                def __exit__(self, *a): return False
+            return R()
+
+        monkeypatch.setattr(segmeta.urllib.request, "urlopen", fake_urlopen)
+        segmeta._get("https://example.invalid/x", 5)
+        assert "vesuvius-catalog-check" in seen["ua"]
+
+
+class TestFetchAllRobustness:
+    def test_a_corrupt_cache_entry_is_discarded_not_returned(self, monkeypatch, tmp_path):
+        (tmp_path / "a_meta.json").write_text("{not json")
+        monkeypatch.setattr(segmeta, "fetch_with_retry", lambda *a, **k: b'{"scale": [0.1]}')
+        result = segmeta.fetch_all([("S", "g", "sc", "a/meta.json")], 1, tmp_path, delay=0)
+        assert result[0][4] == {"scale": [0.1]}
+
+    def test_invalid_json_from_the_bucket_is_a_finding(self, monkeypatch):
+        monkeypatch.setattr(segmeta, "fetch_with_retry", lambda *a, **k: b"<html>")
+        result = segmeta.fetch_all([("S", "g", "sc", "a/meta.json")], 1, None, delay=0)
+        assert result[0][4]["__error__"] == "invalid JSON"
+
+    def test_an_http_error_records_its_status(self, monkeypatch):
+        import urllib.error
+
+        def boom(*a, **k):
+            raise urllib.error.HTTPError("u", 403, "denied", {}, None)
+
+        monkeypatch.setattr(segmeta, "fetch_with_retry", boom)
+        result = segmeta.fetch_all([("S", "g", "sc", "a/meta.json")], 1, None, delay=0)
+        assert result[0][4]["__error__"] == "HTTP 403"

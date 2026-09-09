@@ -19,7 +19,10 @@ from __future__ import annotations
 import argparse
 import gzip
 import json
+import random
 import sys
+import time
+import urllib.error
 import urllib.request
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -28,14 +31,50 @@ from pathlib import Path
 BUCKET = "https://vesuvius-challenge-open-data.s3.amazonaws.com/"
 CATALOG_URL = BUCKET + "metadata.json"
 
+# Identify the tool to whoever reads the bucket logs, so a burst of a few hundred GETs is
+# attributable rather than anonymous.
+USER_AGENT = "vesuvius-catalog-check (+https://github.com/SurgeFok/vesuvius-catalog-check)"
+
+# A missing object is a finding about the data. A 5xx or a dropped connection is the
+# network, and is worth retrying.
+RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+
 # The canonical mesh artifact. The transformed/normalised/flattened variants are derived
 # from it and repeat its defects, which would inflate every count several-fold.
 ARTIFACT_TYPE = "tifxyz"
 
 
+def _get(url, timeout):
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return response.read()
+
+
+def fetch_with_retry(url, *, attempts=4, timeout=30, base_delay=0.5):
+    """GET *url*, retrying transient failures with exponential backoff and jitter.
+
+    Returns the body, or raises the last error. A 404 is not retried: the object is
+    genuinely absent, which is a finding rather than a hiccup.
+    """
+    last = None
+    for attempt in range(attempts):
+        try:
+            return _get(url, timeout)
+        except urllib.error.HTTPError as exc:
+            last = exc
+            if exc.code not in RETRYABLE_STATUS:
+                raise
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last = exc
+        if attempt < attempts - 1:
+            # Jitter so a pool of workers does not retry in lockstep.
+            time.sleep(base_delay * (2 ** attempt) + random.uniform(0, base_delay))
+    raise last
+
+
 def load_catalog(source):
     if source.startswith(("http://", "https://")):
-        raw = urllib.request.urlopen(source, timeout=120).read()
+        raw = fetch_with_retry(source, timeout=120)
     else:
         raw = open(source, "rb").read()
     if raw[:2] == b"\x1f\x8b":
@@ -59,21 +98,36 @@ def mesh_targets(catalog):
                         yield sample_name, segment_id, scan_id, path.rstrip("/") + "/meta.json"
 
 
-def fetch_all(targets, workers, cache_dir):
+def fetch_all(targets, workers, cache_dir, *, delay=0.05, attempts=4):
+    """Fetch every target, cache-first, politely.
+
+    Concurrency is bounded and each worker pauses briefly between requests, so a sweep is
+    a steady trickle against the bucket rather than a burst of a few hundred.
+    """
     def one(target):
         sample, segment_id, scan_id, path = target
         cached = cache_dir / path.replace("/", "_") if cache_dir else None
         if cached and cached.exists():
-            return sample, segment_id, scan_id, path, json.loads(cached.read_text())
+            try:
+                return sample, segment_id, scan_id, path, json.loads(cached.read_text())
+            except json.JSONDecodeError:
+                cached.unlink(missing_ok=True)  # a truncated cache entry is worse than none
         try:
-            with urllib.request.urlopen(BUCKET + path, timeout=30) as response:
-                body = response.read()
+            body = fetch_with_retry(BUCKET + path, attempts=attempts)
+        except urllib.error.HTTPError as exc:
+            return sample, segment_id, scan_id, path, {"__error__": f"HTTP {exc.code}"}
         except Exception as exc:  # noqa: BLE001 - a missing mesh is a finding, not a crash
             return sample, segment_id, scan_id, path, {"__error__": type(exc).__name__}
+        try:
+            meta = json.loads(body)
+        except json.JSONDecodeError:
+            return sample, segment_id, scan_id, path, {"__error__": "invalid JSON"}
         if cached:
             cached.parent.mkdir(parents=True, exist_ok=True)
             cached.write_bytes(body)
-        return sample, segment_id, scan_id, path, json.loads(body)
+        if delay:
+            time.sleep(delay)
+        return sample, segment_id, scan_id, path, meta
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         return list(pool.map(one, targets))
@@ -167,7 +221,12 @@ def main() -> int:
     parser.add_argument("--catalog", default=CATALOG_URL)
     parser.add_argument("--cache-dir", type=Path, default=None)
     parser.add_argument("--limit", type=int, default=None, help="check only the first N")
-    parser.add_argument("--workers", type=int, default=16)
+    parser.add_argument("--workers", type=int, default=8,
+                        help="concurrent requests (default 8; the bucket is a courtesy)")
+    parser.add_argument("--delay", type=float, default=0.05,
+                        help="pause per worker between requests, in seconds")
+    parser.add_argument("--attempts", type=int, default=4,
+                        help="tries per request before giving up on a transient failure")
     parser.add_argument("--fail-on-finding", action="store_true")
     args = parser.parse_args()
 
@@ -175,7 +234,8 @@ def main() -> int:
     if args.limit:
         targets = targets[: args.limit]
     print(f"Fetching {len(targets)} per-segment meta.json ...", file=sys.stderr)
-    metas = fetch_all(targets, args.workers, args.cache_dir)
+    metas = fetch_all(targets, args.workers, args.cache_dir,
+                      delay=args.delay, attempts=args.attempts)
 
     total = 0
     print(f"Per-segment meta.json checks over {len(metas)} mesh(es)\n")
