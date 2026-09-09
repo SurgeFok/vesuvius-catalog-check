@@ -77,6 +77,55 @@ Two of those crashed the coverage check when the suite was first written — `pr
 present but null, and a shape with fewer axes than the bbox. Both were the exact
 malformation the tool is meant to report.
 
+## Per-segment meta.json
+
+`metadata.json` describes the corpus, but each published mesh carries its own small
+`meta.json` holding `bbox`, `scale` and sometimes `area_vx2`. Some open issues are defects
+in those, so they cannot be reached by reading the catalog at all.
+
+[`segment_meta_check.py`](segment_meta_check.py) covers them. It is separate because it
+makes one request per mesh — 188 small public GETs — rather than the single fetch the
+catalog checks need.
+
+```
+python segment_meta_check.py                 # fetch and check
+python segment_meta_check.py --cache-dir m/  # keep what it fetched
+python segment_meta_check.py --limit 40      # sample rather than sweep
+```
+
+It reads only the canonical `tifxyz` artifact. The transformed, normalised and flattened
+variants are derived from it and repeat its defects, which would multiply every count.
+
+### [#1468](https://github.com/ScrollPrize/villa/issues/1468) reproduces, with different numbers
+
+```
+Per-segment meta.json checks over 188 mesh(es)
+
+[FAIL] area-absent-by-scan    #1468      5
+           PHerc0172/20241024131838: area_vx2 absent from all 1 mesh(es)
+           PHerc0332/20231117143551: area_vx2 absent from all 2 mesh(es)
+           PHerc0343P/20250510090703: area_vx2 absent from all 8 mesh(es)
+           PHerc0500P2/20250507210011: area_vx2 absent from all 39 mesh(es)
+           PHercParis4/20230205180739: area_vx2 absent from all 11 mesh(es)
+[ok  ] bbox-degenerate        —          0
+[ok  ] bbox-inverted          —          0
+[ok  ] meta-unfetchable       —          0
+[ok  ] scale-is-a-grid-step   —          0
+
+5 finding(s) across 5 check(s)
+```
+
+The issue reports `area_vx2` absent from two scans covering 73 of 185 meshes. Against
+today's data it is five scans covering 61 of 188. Reported per scan rather than per mesh:
+one mesh missing the field is an omission, a scan where every mesh is missing it is a
+pipeline that never wrote it.
+
+`scale-is-a-grid-step` is deliberately not attributed to
+[#1379](https://github.com/ScrollPrize/villa/issues/1379). That issue concerns
+`outer_shell/meta.json` under the spiral-input tree, and no artifact in the catalog points
+there — the published types are `obj`, `tifxyz` and their variants, the zarr volumes and
+the renders. The invariant is kept as a guard over what is reachable.
+
 ## Findings
 
 See [FINDINGS.md](FINDINGS.md) for the current run against the live catalog.
