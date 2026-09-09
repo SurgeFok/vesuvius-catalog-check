@@ -173,7 +173,15 @@ pipeline that never wrote it.
 
 ## Findings
 
-See [FINDINGS.md](FINDINGS.md) for the current run against the live catalog.
+[FINDINGS.md](FINDINGS.md) is a dated snapshot covering both entry points. It is generated,
+not written:
+
+```
+./regenerate-findings.sh
+```
+
+The catalog is live, so the snapshot is a record of one day rather than a guarantee. The
+weekly CI run is there to notice when that day's answer stops holding.
 
 ## License
 

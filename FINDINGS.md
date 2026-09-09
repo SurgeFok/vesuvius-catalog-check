@@ -1,8 +1,12 @@
 # Findings
 
-Run against the live catalog on 2026-09-09.
+Snapshot of the live catalog, produced by `./regenerate-findings.sh` on 2026-09-09.
+The catalog changes; re-run to refresh.
+
+## Catalog
 
 ```
+$ python3 vesuvius_catalog_check.py
 Vesuvius catalog check
   45 samples · 67 scans · 71 volumes · 311 segments
 
@@ -55,4 +59,24 @@ Vesuvius catalog check
            PHerc0343P/20250521134555: properties.shape is null
 
 463 finding(s) across 13 check(s)
+```
+
+## Per-segment meta.json
+
+```
+$ python3 segment_meta_check.py
+Per-segment meta.json checks over 188 mesh(es)
+
+[FAIL] area-absent-by-scan    #1468      5
+           PHerc0172/20241024131838: area_vx2 absent from all 1 mesh(es)
+           PHerc0332/20231117143551: area_vx2 absent from all 2 mesh(es)
+           PHerc0343P/20250510090703: area_vx2 absent from all 8 mesh(es)
+           PHerc0500P2/20250507210011: area_vx2 absent from all 39 mesh(es)
+           PHercParis4/20230205180739: area_vx2 absent from all 11 mesh(es)
+[ok  ] bbox-degenerate        —          0
+[ok  ] bbox-inverted          —          0
+[ok  ] meta-unfetchable       —          0
+[ok  ] scale-is-a-grid-step   —          0
+
+5 finding(s) across 5 check(s)
 ```
